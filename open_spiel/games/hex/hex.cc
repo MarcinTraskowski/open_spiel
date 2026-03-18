@@ -215,9 +215,10 @@ void HexState::DoApplyAction(Action move) {
     int r = first_move / num_cols_;
     int c = first_move % num_cols_;
     Action mirrored_move = c * num_cols_ + r;
-    CellState move_cell_state = PlayerAndActionToState(1, mirrored_move);
+    CellState move_cell_state = PlayerAndActionToState(kWhitePlayerId,
+                                                       mirrored_move);
     board_[mirrored_move] = move_cell_state;
-    current_player_ = 0;  // After swap, it's player 0's turn.
+    current_player_ = kBlackPlayerId;  // After swap, it's black's turn.
     return;
   }
   SPIEL_CHECK_TRUE(board_[move] == CellState::kEmpty);
@@ -264,7 +265,7 @@ std::vector<Action> HexState::LegalActions() const {
       moves.push_back(cell);
     }
   }
-  if (swap_ && history_.size() == 1 && current_player_ == 1) {
+  if (swap_ && history_.size() == 1 && current_player_ == kWhitePlayerId) {
     moves.push_back(num_cols_ * num_rows_);
   }
   return moves;
