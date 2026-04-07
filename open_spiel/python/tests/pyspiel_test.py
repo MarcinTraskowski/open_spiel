@@ -121,6 +121,7 @@ EXPECTED_MANDATORY_GAMES = frozenset([
     "oshi_zumo",
     "othello",
     "oware",
+    "patrol",
     "pentago",
     "pathfinding",
     "phantom_go",

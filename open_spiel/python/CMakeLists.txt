@@ -250,6 +250,7 @@ set(PYTHON_TESTS ${PYTHON_TESTS}
   games/pokerkit_wrapper_test.py
   games/team_dominoes_test.py
   games/tic_tac_toe_test.py
+  games/patrol_test.py
   mfg/algorithms/best_response_value_test.py
   mfg/algorithms/mirror_descent_test.py
   mfg/algorithms/greedy_policy_test.py
