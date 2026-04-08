@@ -27,8 +27,6 @@ works with that. It is likely to be poor if the algorithm relies on processing
 and updating states as it goes, e.g. MCTS.
 """
 
-import enum
-
 import numpy as np
 
 import pyspiel
@@ -52,13 +50,51 @@ _GAME_TYPE = pyspiel.GameType(
     provides_observation_tensor=True,
     provides_factored_observation_string=True)
 _GAME_INFO = pyspiel.GameInfo(
-    num_distinct_actions=100, ######
-    max_chance_outcomes=100,
+    num_distinct_actions=3,
+    max_chance_outcomes=3,
     num_players=_NUM_PLAYERS,
     min_utility=-1.0,
     max_utility=1.0,
     utility_sum=0.0,
-    max_game_length=50) 
+    max_game_length=10) 
+
+
+class SimpleGraph:
+    def __init__(self):
+      
+        self.nodes = [0, 1, 2]
+
+        self.adj_matrix = [
+            [1, 1, 1],  
+            [1, 1, 1],  
+            [1, 1, 1],  
+        ]
+        self.targets = {
+            0: 1.0,
+            1: 1.0,
+            2: 3.0,
+        }
+
+        self.attack_duration = {
+            0: 3,
+            1: 3,
+            2: 3,
+        }
+
+    # -------------------------
+    # API
+
+    def get_neighbors(self, node):
+        return [
+            j for j, connected in enumerate(self.adj_matrix[node])
+            if connected >= 1
+        ]
+
+    def get_target_value(self, node):
+        return self.targets[node]
+
+    def get_attack_duration(self, node):
+        return self.attack_duration[node]
 
 
 class PatrolGame(pyspiel.Game):
@@ -66,6 +102,8 @@ class PatrolGame(pyspiel.Game):
 
   def __init__(self, params=None):
     super().__init__(_GAME_TYPE, _GAME_INFO, params or dict())
+
+    self.graph = SimpleGraph()
 
   def new_initial_state(self):
     """Returns a state corresponding to the start of a game."""
@@ -82,13 +120,24 @@ class PatrolState(pyspiel.State):
   """A python version of the Kuhn poker state."""
 
   def __init__(self, game):
-    """Constructor; should only be called by Game.new_initial_state."""
     super().__init__(game)
-    self.cards = []
-    self.bets = []
-    self.pot = [1.0, 1.0]
+
+    self.graph = game.graph
+    self.observation_length = 2  # HARDCODED
+
+    self.phase = "chance"   # "chance" / "defender" / "attacker"
+    self.position = None
+
+    self._history = []
+    self.step = 0
+
+    # attack
+    self.attack_target = None
+    self.attack_remaining = 0
+
+    # terminal
     self._game_over = False
-    self._next_player = 0
+    self.success = None
 
   # OpenSpiel (PySpiel) API functions are below. This is the standard set that
   # should be implemented by every sequential-move game with chance.
@@ -97,45 +146,88 @@ class PatrolState(pyspiel.State):
     """Returns id of the next player to move, or TERMINAL if game is over."""
     if self._game_over:
       return pyspiel.PlayerId.TERMINAL
-    elif len(self.cards) < _NUM_PLAYERS:
+    if self.phase == "chance":
       return pyspiel.PlayerId.CHANCE
-    else:
-      return self._next_player
+    if self.phase == "defender":
+      return 0   # player 0
+    if self.phase == "attacker":
+      return 1   # player 1
 
   def _legal_actions(self, player):
     """Returns a list of legal actions, sorted in ascending order."""
-    assert player >= 0
-    return [Action.PASS, Action.BET]
+    
+    assert player == self.current_player()
+    
+    if self.phase == "chance":
+      return self.graph.nodes
+
+    if self.phase == "defender":
+      return self.graph.get_neighbors(self.position)
+
+    if self.phase == "attacker":
+      return self.graph.nodes
+    
+    return []
 
   def chance_outcomes(self):
     """Returns the possible chance outcomes and their probabilities."""
     assert self.is_chance_node()
-    outcomes = sorted(_DECK - set(self.cards))
-    p = 1.0 / len(outcomes)
-    return [(o, p) for o in outcomes]
+    p = 1.0 / len(self.graph.nodes)
+    return [(n, p) for n in self.graph.nodes]
 
   def _apply_action(self, action):
     """Applies the specified action to the state."""
-    if self.is_chance_node():
-      self.cards.append(action)
-    else:
-      self.bets.append(action)
-      if action == Action.BET:
-        self.pot[self._next_player] += 1
-      self._next_player = 1 - self._next_player
-      if ((min(self.pot) == 2) or
-          (len(self.bets) == 2 and action == Action.PASS) or
-          (len(self.bets) == 3)):
-        self._game_over = True
+    
+    # -------------------------
+    # CHANCE
+    # -------------------------
+    if self.phase == "chance":
+      self.position = action
+      self._history = [action]
+      self.step = 1
+      self.phase = "defender"
+      return
+    
+    # -------------------------
+    # DEFENDER
+    # -------------------------
+    if self.phase == "defender":
+      self.position = action
+      self._history.append(action)
+      self.step += 1
 
-  def _action_to_string(self, player, action):
-    """Action -> string."""
-    if player == pyspiel.PlayerId.CHANCE:
-      return f"Deal:{action}"
-    elif action == Action.PASS:
-      return "Pass"
-    else:
-      return "Bet"
+      # --- attack is ongoing ---
+      if self.attack_target is not None:
+
+        # caught
+        if self.position == self.attack_target:
+          self._game_over = True
+          self.success = True
+          return
+
+        self.attack_remaining -= 1
+
+        if self.attack_remaining <= 0:
+          self._game_over = True
+          self.success = False
+          return
+
+        return
+
+      # ---  attack is not  ongoing ---
+      if self.step > 2:   # observation_length = 2 # HARDCODED
+        self.phase = "attacker"
+
+      return
+
+    # -------------------------
+    # ATTACKER
+    # -------------------------
+    if self.phase == "attacker":
+      self.attack_target = action
+      self.attack_remaining = self.graph.get_attack_duration(action)
+      self.phase = "defender"
+      return
 
   def is_terminal(self):
     """Returns True if the game is over."""
@@ -143,22 +235,42 @@ class PatrolState(pyspiel.State):
 
   def returns(self):
     """Total reward for each player over the course of the game so far."""
-    pot = self.pot
-    winnings = float(min(pot))
     if not self._game_over:
-      return [0., 0.]
-    elif pot[0] > pot[1]:
-      return [winnings, -winnings]
-    elif pot[0] < pot[1]:
-      return [-winnings, winnings]
-    elif self.cards[0] > self.cards[1]:
-      return [winnings, -winnings]
+      return [0.0, 0.0]
+
+    value = self.graph.get_target_value(self.attack_target)
+
+    if self.success:
+      return [value, -value]   # defender won
     else:
-      return [-winnings, winnings]
+      return [-value, value]   # attacker won
 
   def __str__(self):
-    """String for debug purposes. No particular semantics are required."""
-    return "".join([str(c) for c in self.cards] + ["pb"[b] for b in self.bets])
+    return (
+        f"[{self.phase}] "
+        f"pos={self.position}, "
+        f"hist={self._history}, "
+        f"attack={self.attack_target}, "
+        f"t={self.attack_remaining}"
+    )
+
+  def _action_to_string(self, player, action):
+      if player == pyspiel.PlayerId.CHANCE:
+          p = "C"
+      elif player == 0:
+          p = "D"  # defender
+      elif player == 1:
+          p = "A"  # attacker
+      else:
+          p = "?"
+
+      if self.phase == "chance":
+          return f"{p}: start@{action}"
+      elif self.phase == "defender":
+          return f"{p}: move->{action}"
+      elif self.phase == "attacker":
+          return f"{p}: attack->{action}"
+      return f"{p}: {action}"
 
 
 class PatrolObserver:
@@ -169,52 +281,29 @@ class PatrolObserver:
     if params:
       raise ValueError(f"Observation parameters not supported; passed {params}")
 
-    # Determine which observation pieces we want to include.
-    pieces = [("player", 2, (2,))]
-    if iig_obs_type.private_info == pyspiel.PrivateInfoType.SINGLE_PLAYER:
-      pieces.append(("private_card", 3, (3,)))
-    if iig_obs_type.public_info:
-      if iig_obs_type.perfect_recall:
-        pieces.append(("betting", 6, (3, 2)))
-      else:
-        pieces.append(("pot_contribution", 2, (2,)))
-
     # Build the single flat tensor.
-    total_size = sum(size for name, size, shape in pieces)
-    self.tensor = np.zeros(total_size, np.float32)
+    self.tensor = np.zeros(1, np.float32)  # placeholder
 
     # Build the named & reshaped views of the bits of the flat tensor.
     self.dict = {}
-    index = 0
-    for name, size, shape in pieces:
-      self.dict[name] = self.tensor[index:index + size].reshape(shape)
-      index += size
 
   def set_from(self, state, player):
     """Updates `tensor` and `dict` to reflect `state` from PoV of `player`."""
-    self.tensor.fill(0)
-    if "player" in self.dict:
-      self.dict["player"][player] = 1
-    if "private_card" in self.dict and len(state.cards) > player:
-      self.dict["private_card"][state.cards[player]] = 1
-    if "pot_contribution" in self.dict:
-      self.dict["pot_contribution"][:] = state.pot
-    if "betting" in self.dict:
-      for turn, action in enumerate(state.bets):
-        self.dict["betting"][turn, action] = 1
+    pass  
 
   def string_from(self, state, player):
-    """Observation of `state` from the PoV of `player`, as a string."""
-    pieces = []
-    if "player" in self.dict:
-      pieces.append(f"p{player}")
-    if "private_card" in self.dict and len(state.cards) > player:
-      pieces.append(f"card:{state.cards[player]}")
-    if "pot_contribution" in self.dict:
-      pieces.append(f"pot[{int(state.pot[0])} {int(state.pot[1])}]")
-    if "betting" in self.dict and state.bets:
-      pieces.append("".join("pb"[b] for b in state.bets))
-    return " ".join(str(p) for p in pieces)
+
+    k = state.observation_length
+
+    if state.phase == "defender":
+      hist = state._history[-k:]
+      return f"D|{tuple(hist)}"
+
+    if state.phase == "attacker":
+      hist = state._history[-k:] 
+      return f"A|{tuple(hist)}"
+
+    return "C"
 
 
 # Register the game with the OpenSpiel library
