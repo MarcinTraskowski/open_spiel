@@ -1,0 +1,8 @@
+# do zbudowania c++
+
+cd build
+make -j$(nproc)
+cd ..
+
+# pod pythona jak zmiany w c++
+pip install -e .

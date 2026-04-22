@@ -174,6 +174,8 @@ set(GAME_SOURCES
   oware/oware_board.h
   pathfinding/pathfinding.cc
   pathfinding/pathfinding.h
+  patrol/patrol.cc
+  patrol/patrol.h
   pentago/pentago.cc
   pentago/pentago.h
   phantom_go/phantom_go.h
@@ -632,6 +634,10 @@ add_executable(oware_test oware/oware_test.cc ${OPEN_SPIEL_OBJECTS}
                $<TARGET_OBJECTS:tests>
                $<TARGET_OBJECTS:algorithms>)
 add_test(oware_test oware_test)
+
+# add_executable(patrol_test patrol/patrol_test.cc ${OPEN_SPIEL_OBJECTS}
+#                $<TARGET_OBJECTS:tests>)
+# add_test(patrol_test patrol_test)
 
 add_executable(pathfinding_test pathfinding/pathfinding_test.cc ${OPEN_SPIEL_OBJECTS}
                $<TARGET_OBJECTS:tests>)

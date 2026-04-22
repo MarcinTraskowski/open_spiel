@@ -35,7 +35,7 @@ import pyspiel
 _NUM_PLAYERS = 2
 
 _GAME_TYPE = pyspiel.GameType(
-    short_name="patrol",
+    short_name="python_patrol",
     long_name="Python Patrol Game",
     dynamics=pyspiel.GameType.Dynamics.SEQUENTIAL,
     chance_mode=pyspiel.GameType.ChanceMode.EXPLICIT_STOCHASTIC,
@@ -53,8 +53,8 @@ _GAME_INFO = pyspiel.GameInfo(
     num_distinct_actions=3,
     max_chance_outcomes=3,
     num_players=_NUM_PLAYERS,
-    min_utility=-1.0,
-    max_utility=1.0,
+    min_utility=-2.0,
+    max_utility=2.0,
     utility_sum=0.0,
     max_game_length=10) 
 
@@ -72,7 +72,7 @@ class SimpleGraph:
         self.targets = {
             0: 1.0,
             1: 1.0,
-            2: 3.0,
+            2: 2.0,
         }
 
         self.attack_duration = {

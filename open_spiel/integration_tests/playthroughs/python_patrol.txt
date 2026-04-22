@@ -1,0 +1,170 @@
+game: python_patrol
+
+GameType.chance_mode = ChanceMode.EXPLICIT_STOCHASTIC
+GameType.dynamics = Dynamics.SEQUENTIAL
+GameType.information = Information.IMPERFECT_INFORMATION
+GameType.long_name = "Python Patrol Game"
+GameType.max_num_players = 2
+GameType.min_num_players = 2
+GameType.parameter_specification = []
+GameType.provides_information_state_string = True
+GameType.provides_information_state_tensor = True
+GameType.provides_observation_string = True
+GameType.provides_observation_tensor = True
+GameType.provides_factored_observation_string = True
+GameType.reward_model = RewardModel.TERMINAL
+GameType.short_name = "python_patrol"
+GameType.utility = Utility.ZERO_SUM
+
+NumDistinctActions() = 3
+PolicyTensorShape() = [3]
+MaxChanceOutcomes() = 3
+GetParameters() = {}
+NumPlayers() = 2
+MinUtility() = -1.0
+MaxUtility() = 1.0
+UtilitySum() = 0.0
+InformationStateTensorShape() = 
+InformationStateTensorLayout() = TensorLayout.CHW
+InformationStateTensorSize() = 1
+ObservationTensorShape() = 
+ObservationTensorLayout() = TensorLayout.CHW
+ObservationTensorSize() = 1
+MaxGameLength() = 10
+ToString() = "python_patrol()"
+
+# State 0
+# [chance] pos=None, hist=[], attack=None, t=0
+IsTerminal() = False
+History() = []
+HistoryString() = ""
+IsChanceNode() = True
+IsSimultaneousNode() = False
+CurrentPlayer() = -1
+InformationStateString(0) = "C"
+InformationStateString(1) = "C"
+ObservationString(0) = "C"
+ObservationString(1) = "C"
+PublicObservationString() = "C"
+PrivateObservationString(0) = "C"
+PrivateObservationString(1) = "C"
+ChanceOutcomes() = [(0,0.333333), (1,0.333333), (2,0.333333)]
+LegalActions() = [0, 1, 2]
+StringLegalActions() = ["C: start@0", "C: start@1", "C: start@2"]
+
+# Apply action "C: start@1"
+action: 1
+
+# State 1
+# [defender] pos=1, hist=[1], attack=None, t=0
+IsTerminal() = False
+History() = [1]
+HistoryString() = "1"
+IsChanceNode() = False
+IsSimultaneousNode() = False
+CurrentPlayer() = 0
+InformationStateString(0) = "D|(1,)"
+InformationStateString(1) = "D|(1,)"
+ObservationString(0) = "D|(1,)"
+ObservationString(1) = "D|(1,)"
+PublicObservationString() = "D|(1,)"
+PrivateObservationString(0) = "D|(1,)"
+PrivateObservationString(1) = "D|(1,)"
+Rewards() = [0, 0]
+Returns() = [0, 0]
+LegalActions() = [0, 1, 2]
+StringLegalActions() = ["D: move->0", "D: move->1", "D: move->2"]
+
+# Apply action "D: move->0"
+action: 0
+
+# State 2
+# [defender] pos=0, hist=[1, 0], attack=None, t=0
+IsTerminal() = False
+History() = [1, 0]
+HistoryString() = "1, 0"
+IsChanceNode() = False
+IsSimultaneousNode() = False
+CurrentPlayer() = 0
+InformationStateString(0) = "D|(1, 0)"
+InformationStateString(1) = "D|(1, 0)"
+ObservationString(0) = "D|(1, 0)"
+ObservationString(1) = "D|(1, 0)"
+PublicObservationString() = "D|(1, 0)"
+PrivateObservationString(0) = "D|(1, 0)"
+PrivateObservationString(1) = "D|(1, 0)"
+Rewards() = [0, 0]
+Returns() = [0, 0]
+LegalActions() = [0, 1, 2]
+StringLegalActions() = ["D: move->0", "D: move->1", "D: move->2"]
+
+# Apply action "D: move->1"
+action: 1
+
+# State 3
+# [attacker] pos=1, hist=[1, 0, 1], attack=None, t=0
+IsTerminal() = False
+History() = [1, 0, 1]
+HistoryString() = "1, 0, 1"
+IsChanceNode() = False
+IsSimultaneousNode() = False
+CurrentPlayer() = 1
+InformationStateString(0) = "A|(0, 1)"
+InformationStateString(1) = "A|(0, 1)"
+ObservationString(0) = "A|(0, 1)"
+ObservationString(1) = "A|(0, 1)"
+PublicObservationString() = "A|(0, 1)"
+PrivateObservationString(0) = "A|(0, 1)"
+PrivateObservationString(1) = "A|(0, 1)"
+Rewards() = [0, 0]
+Returns() = [0, 0]
+LegalActions() = [0, 1, 2]
+StringLegalActions() = ["A: attack->0", "A: attack->1", "A: attack->2"]
+
+# Apply action "A: attack->0"
+action: 0
+
+# State 4
+# [defender] pos=1, hist=[1, 0, 1], attack=0, t=3
+IsTerminal() = False
+History() = [1, 0, 1, 0]
+HistoryString() = "1, 0, 1, 0"
+IsChanceNode() = False
+IsSimultaneousNode() = False
+CurrentPlayer() = 0
+InformationStateString(0) = "D|(0, 1)"
+InformationStateString(1) = "D|(0, 1)"
+ObservationString(0) = "D|(0, 1)"
+ObservationString(1) = "D|(0, 1)"
+PublicObservationString() = "D|(0, 1)"
+PrivateObservationString(0) = "D|(0, 1)"
+PrivateObservationString(1) = "D|(0, 1)"
+Rewards() = [0, 0]
+Returns() = [0, 0]
+LegalActions() = [0, 1, 2]
+StringLegalActions() = ["D: move->0", "D: move->1", "D: move->2"]
+
+# Apply action "D: move->1"
+action: 1
+
+# State 5
+# Apply action "D: move->0"
+action: 0
+
+# State 6
+# [defender] pos=0, hist=[1, 0, 1, 1, 0], attack=0, t=2
+IsTerminal() = True
+History() = [1, 0, 1, 0, 1, 0]
+HistoryString() = "1, 0, 1, 0, 1, 0"
+IsChanceNode() = False
+IsSimultaneousNode() = False
+CurrentPlayer() = -4
+InformationStateString(0) = "D|(1, 0)"
+InformationStateString(1) = "D|(1, 0)"
+ObservationString(0) = "D|(1, 0)"
+ObservationString(1) = "D|(1, 0)"
+PublicObservationString() = "D|(1, 0)"
+PrivateObservationString(0) = "D|(1, 0)"
+PrivateObservationString(1) = "D|(1, 0)"
+Rewards() = [1, -1]
+Returns() = [1, -1]
