@@ -4,6 +4,12 @@ add_test(benchmark_game_test benchmark_game --game=tic_tac_toe --sims=100 --atte
 add_executable(cfr_example cfr_example.cc ${OPEN_SPIEL_OBJECTS})
 add_test(cfr_example_test cfr_example)
 
+
+# ------------------
+add_executable(cfr_no_exploit cfr_no_exploit.cc ${OPEN_SPIEL_OBJECTS})
+add_executable(cfr_with_exploit cfr_with_exploit.cc ${OPEN_SPIEL_OBJECTS})
+# ------------------
+
 if (OPEN_SPIEL_BUILD_WITH_ACPC)
 add_executable(universal_poker_mccfr_acpc_gamedef_example universal_poker_mccfr_acpc_gamedef_example.cc ${OPEN_SPIEL_OBJECTS})
 add_test(universal_poker_mccfr_acpc_gamedef_example_test universal_poker_mccfr_acpc_gamedef_example)

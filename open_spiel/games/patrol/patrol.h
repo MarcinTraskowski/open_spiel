@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Include guard – prevents this header from being included multiple times
 #ifndef OPEN_SPIEL_GAMES_PATROL_H_
 #define OPEN_SPIEL_GAMES_PATROL_H_
 
@@ -74,26 +75,21 @@ class PatrolState : public State {
 
   Phase phase_;
 
-  int defender_position_;     // gdzie stoi defender
-  int attack_target_;         // target wybrany przez attacker (-1 jeśli brak)
-  int attack_remaining_;      // ile czasu do końca ataku
-  int step_;                  // krok czasu
-  int attacker_delay_;
-  int defender_moves_;        // ile ruchów wykonał defender
+  int defender_position_;   // current position of the defender
+  int attack_target_;       // target chosen by the attacker (-1 if none)
+  int attack_remaining_;    // remaining time until the attack completes
+  int step_;                // current time step
+  int attacker_delay_;      // delay before attacker starts the attack
+  int defender_moves_;      // number of moves made by the defender
+  std::vector<int> defender_history_; // history of defender positions
 };
-
 
 struct SimpleGraph {
-  std::vector<std::vector<int>> adj_matrix{
-      {1, 1, 1},
-      {1, 1, 1},
-      {1, 1, 1},
-  };
-
-  std::vector<double> targets{1.0, 2.0, 3.0};
-  std::vector<int> attack_duration{4, 2, 3};
-
+  std::vector<std::vector<int>> adj_matrix;
+  std::vector<double> targets;
+  std::vector<int> attack_duration;
 };
+
 
 class PatrolGame : public Game {
  public:
@@ -104,7 +100,7 @@ class PatrolGame : public Game {
   double MinUtility() const override;
   double MaxUtility() const override;
   absl::optional<double> UtilitySum() const override { return 0; }
-  int MaxGameLength() const override { return 50; }
+  int MaxGameLength() const override;
   std::shared_ptr<Observer> MakeObserver(
       absl::optional<IIGObservationType> iig_obs_type,
       const GameParameters& params) const override;
@@ -119,7 +115,7 @@ int MaxChanceOutcomes() const override {
   return graph_.targets.size() * num_delays_; // num_nodes * num_delays
 }
 
-  // Used to implement the old observation API.
+  // Used to implement the  observation API.
   std::shared_ptr<PatrolObserver> default_observer_;
   std::shared_ptr<PatrolObserver> info_state_observer_;
   std::shared_ptr<PatrolObserver> public_observer_;

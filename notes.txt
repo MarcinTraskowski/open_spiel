@@ -1,8 +1,29 @@
-# do zbudowania c++
+# to build c++
 
 cd build
-make -j$(nproc)
+//make clean
+make -j6
+//make -j$(nproc)
 cd ..
 
-# pod pythona jak zmiany w c++
+# python if changes in c++
 pip install -e .
+
+./open_spiel/scripts/generate_new_playthrough.sh patrol
+
+
+~/open_spiel/build/examples/cfr_no_exploit
+~/open_spiel/build/examples/cfr_example --game_name=patrol --num_iters=1000
+
+~/open_spiel/build/examples/cfr_with_exploit --game_name=patrol --num_iters=100000 --report_every=10000
+
+
+
+
+
+~/open_spiel/build/examples/cfr_no_exploit --game_name=patrol --num_iters=100001 --report_every=10000
+
+
+gdb build/examples/cfr_example
+run --game_name=patrol --num_iters=1000
+bt

@@ -49,11 +49,13 @@ const GameType kGameType{/*short_name=*/"patrol",
                          /*provides_observation_tensor=*/true,
                          /*parameter_specification=*/
                          {{"players", GameParameter(kDefaultPlayers)},
-                          {"num_delays", GameParameter(3)}},
+                          {"num_delays", GameParameter(2)}},
                          /*default_loadable=*/true,
                          /*provides_factored_observation_string=*/true,
                         };
 
+
+// Register game so it can be created via LoadGame("patrol")
 std::shared_ptr<const Game> Factory(const GameParameters& params) {
   return std::shared_ptr<const Game>(new PatrolGame(params));
 }
@@ -63,56 +65,158 @@ REGISTER_SPIEL_GAME(kGameType, Factory);
 open_spiel::RegisterSingleTensorObserver single_tensor(kGameType.short_name);
 }  // namespace
 
-/// PatrolObserver class, used to implement the new observation API
+
+
+/////////////// CLASS PatrolObserver ///////////////
 class PatrolObserver : public Observer {
  public:
+
+  // Constructor: defines what kind of observation this observer produces
   PatrolObserver(IIGObservationType iig_obs_type)
       : Observer(/*has_string=*/true, /*has_tensor=*/true),
+
+        // Store observation configuration (public/private info, recall, etc.)
+        // Used by OpenSpiel to control what each player can "see"
         iig_obs_type_(iig_obs_type) {}
+
 
   void WriteTensor(const State& observed_state, int player,
                   Allocator* allocator) const override {
+
     const PatrolState& state =
         open_spiel::down_cast<const PatrolState&>(observed_state);
 
-    // Minimal: encode just phase and position
+    const auto& game =
+        open_spiel::down_cast<const PatrolGame&>(*state.game_);
+
+    int N = game.GetGraph().targets.size();
+
+    // MAX GAME LENGTH
+    int max_len = game.MaxGameLength();
+
+    // --- player (one-hot size 2) ---
     {
-      auto out = allocator->Get("phase", {4});
-      out.at(static_cast<int>(state.phase_)) = 1;
+      auto out = allocator->Get("player", {2});
+      for (int i = 0; i < 2; ++i) {
+        out.at(i) = 0.0f;
+      }
+
+      out.at(player) = 1.0f;
     }
 
+    // --- full history (flatten T x N) ---
     {
-      auto out = allocator->Get("position", {15}); // max nodes for now, temporary
-      if (state.defender_position_ >= 0)
-        out.at(state.defender_position_) = 1;
+      auto out = allocator->Get("history", {max_len * N});
+
+      // Initialize with zeros
+      int total_size = max_len * N;
+
+      for (int i = 0; i < total_size; ++i) {
+        out.at(i) = 0.0f;
+      }
+      const auto& hist = state.defender_history_;
+
+      for (int t = 0; t < hist.size() && t < max_len; ++t) {
+        int pos = hist[t];
+        if (pos >= 0 && pos < N) {
+          out.at(t * N + pos) = 1;
+        }
+      }
     }
   }
 
+
+  ////////////////////// old version //////////////////
+  // // Encode the state as a feature vector using one-hot encoding:
+  // void WriteTensor(const State& observed_state, int player,
+  //                 Allocator* allocator) const override {
+    
+  //   // Cast generic State → PatrolState (we know what game this is)
+  //   const PatrolState& state =
+  //       open_spiel::down_cast<const PatrolState&>(observed_state);
+
+  //    // -------- encode phase (one-hot of size 4) --------
+  //   {
+  //     // Allocate a slice of the tensor named "phase" with size 4
+  //     auto out = allocator->Get("phase", {4});
+  //     out.at(static_cast<int>(state.phase_)) = 1;
+  //   }
+
+  //    // -------- encode defender position (one-hot of size N) --------
+  //   {
+  //     // Get access to the game object to read graph size
+  //     const auto& game =
+  //         open_spiel::down_cast<const PatrolGame&>(*state.game_);
+      
+  //     // Number of nodes in the graph
+  //     int N = game.GetGraph().targets.size();
+      
+  //     auto out = allocator->Get("position", {N});
+  //     if (state.defender_position_ >= 0) {
+  //       out.at(state.defender_position_) = 1;
+  //     }
+  //   }
+  // }
+  ////////////////////// old version //////////////////
+
+
+  // VERSION WITH FULL HISTORY
   std::string StringFrom(const State& observed_state,
                         int player) const override {
+  // Build the information state (infoset) as a string:
+  // - identifies the player
+  // - includes full history of defender moves (perfect recall)
+                    
     const PatrolState& state =
         open_spiel::down_cast<const PatrolState&>(observed_state);
 
-    const char* phase_str =
-        state.phase_ == PatrolState::kChance   ? "chance" :
-        state.phase_ == PatrolState::kDefender ? "defender" :
-        state.phase_ == PatrolState::kAttacker ? "attacker" :
-                                                "terminal";
-
     return absl::StrCat(
-        "phase=", phase_str,
-        " pos=", state.defender_position_,
-        " target=", state.attack_target_,
-        " remaining=", state.attack_remaining_,
-        " delay=", state.attacker_delay_
+        "p=", player,
+        "|def_hist=", state.defender_history_.empty()
+        ? "init"
+        : absl::StrJoin(state.defender_history_, ",")
     );
+
   }
 
+  // VERSION WITH LAST 2 MOVES ONLY (instead of full history)
+  // std::string StringFrom(const State& observed_state,
+  //                       int player) const override {
+  //   const PatrolState& state =
+  //       open_spiel::down_cast<const PatrolState&>(observed_state);
+
+  //   // weź ostatnie 2 ruchy (albo mniej jeśli nie ma)
+  //   std::string hist_str;
+  //   int h_size = state.defender_history_.size();
+
+  //   if (h_size == 0) {
+  //     hist_str = "init";
+  //   } else if (h_size == 1) {
+  //     hist_str = absl::StrCat(state.defender_history_[0]);
+  //   } else {
+  //     hist_str = absl::StrCat(
+  //         state.defender_history_[h_size - 2], ",",
+  //         state.defender_history_[h_size - 1]);
+  //   }
+
+  //   return absl::StrCat(
+  //       "p=", player,
+  //       "|hist=", hist_str
+  //   );
+  // }
+
  private:
+  // Specifies what information this observer exposes:
+  // - whether observations include public info
+  // - whether perfect recall is assumed
+  // - what private information (if any) is visible to the player
   IIGObservationType iig_obs_type_;
 };
 
-// The state of the game.
+/////////////////////////////////////////////
+
+
+/////////////// CLASS PatrolState ///////////////
 
 
 PatrolState::PatrolState(std::shared_ptr<const Game> game)
@@ -124,6 +228,7 @@ PatrolState::PatrolState(std::shared_ptr<const Game> game)
       step_(0),
       attacker_delay_(-1),
       defender_moves_(0) {}
+
 
 Player PatrolState::CurrentPlayer() const {
   if (phase_ == kTerminal) {
@@ -142,6 +247,7 @@ Player PatrolState::CurrentPlayer() const {
   }
 }
 
+
 std::string PatrolState::ToString() const {
   const char* phase_str =
       phase_ == kChance   ? "chance" :
@@ -151,13 +257,14 @@ std::string PatrolState::ToString() const {
 
   return absl::StrCat(
       "phase=", phase_str,
-      " pos=", defender_position_,
-      " target=", attack_target_,
-      " remaining=", attack_remaining_,
-      " step=", step_,
-      " delay=", attacker_delay_
+      " defender_position_=", defender_position_,
+      " attack_target_=", attack_target_,
+      " attack_remaining_=", attack_remaining_,
+      " step_=", step_,
+      " attacker_delay_=", attacker_delay_
   );
 }
+
 
 bool PatrolState::IsTerminal() const {
   return phase_ == kTerminal;
@@ -170,6 +277,7 @@ std::vector<double> PatrolState::Returns() const {
     return {0.0, 0.0};
   }
 
+  // checking >=
   SPIEL_CHECK_GE(attack_target_, 0);
 
   const SimpleGraph& graph =
@@ -177,8 +285,7 @@ std::vector<double> PatrolState::Returns() const {
 
   double value = graph.targets[attack_target_];
 
-  // przykład: jeśli attack_remaining_ == 0 → atak się udał
-  if (attack_remaining_ == 0) {
+  if (defender_position_ != attack_target_) {
     return {-value, value};  // defender, attacker
   } else {
     return {value, -value};
@@ -192,6 +299,7 @@ std::unique_ptr<State> PatrolState::Clone() const {
 
 
 std::vector<std::pair<Action, double>> PatrolState::ChanceOutcomes() const {
+
   SPIEL_CHECK_TRUE(phase_ == kChance);
 
   std::vector<std::pair<Action, double>> outcomes;
@@ -200,12 +308,13 @@ std::vector<std::pair<Action, double>> PatrolState::ChanceOutcomes() const {
 
   const int num_nodes = graph.targets.size(); 
 
-
   const auto& game =
     static_cast<const PatrolGame&>(*game_);
+
   int num_delays = game.num_delays_; // after this many nodes, attacker will act
 
-
+  // Sample initial defender position and attacker delay.
+  // Each (position, delay) pair is assigned equal probability.
   const double p = 1.0 / (num_nodes * num_delays);
 
   for (int start = 0; start < num_nodes; ++start) {
@@ -217,6 +326,8 @@ std::vector<std::pair<Action, double>> PatrolState::ChanceOutcomes() const {
 
   return outcomes;
 }
+
+
 
 void PatrolState::DoApplyAction(Action move) {
   const SimpleGraph& graph =
@@ -240,7 +351,16 @@ void PatrolState::DoApplyAction(Action move) {
     defender_moves_ = 0;
     step_ = 0;
 
+    defender_history_.clear();
+    defender_history_.push_back(defender_position_);
+
+    // checking defender_moves_ >= attacker_delay_
+    if (attacker_delay_ == 0) {
+      phase_ = kAttacker;
+    }
+    else {
     phase_ = kDefender;
+    }
     return;
   }
 
@@ -255,6 +375,7 @@ void PatrolState::DoApplyAction(Action move) {
 
     defender_position_ = new_pos;
     defender_moves_++;
+    defender_history_.push_back(new_pos);
 
     // attacker enters after k moves
     if (defender_moves_ >= attacker_delay_) {
@@ -271,9 +392,8 @@ void PatrolState::DoApplyAction(Action move) {
     attack_target_ = move;
     attack_remaining_ = graph.attack_duration[move];
 
-    // immediate check: defender already there
-    if (defender_position_ == attack_target_) {
-      phase_ = kTerminal;
+    if (attack_target_ == defender_position_) {
+      phase_ = kTerminal;  // defender wins immediately
       return;
     }
 
@@ -287,11 +407,20 @@ void PatrolState::DoApplyAction(Action move) {
   // --------------------
   if (attack_target_ != -1 && phase_ == kDefender) {
     int new_pos = move;
+    int travel_time = graph.adj_matrix[defender_position_][new_pos];
+  
 
-    step_ += graph.adj_matrix[defender_position_][new_pos];
+    step_ += travel_time;
+    attack_remaining_ -= travel_time;
+
+    if (attack_remaining_ < 0) {
+      phase_ = kTerminal;  // attacker wins
+      return;
+    }
+
+    // update defender position and history
     defender_position_ = new_pos;
-
-    attack_remaining_--;
+    defender_history_.push_back(new_pos);
 
     if (defender_position_ == attack_target_) {
       phase_ = kTerminal;  // defender wins
@@ -308,6 +437,8 @@ void PatrolState::DoApplyAction(Action move) {
 
   SpielFatalError("Unexpected state in DoApplyAction");
 }
+
+
 
 std::vector<Action> PatrolState::LegalActions() const {
   if (IsTerminal()) return {};
@@ -370,6 +501,8 @@ std::vector<Action> PatrolState::LegalActions() const {
   return {};
 }
 
+
+
 std::string PatrolState::ActionToString(Player player, Action move) const {
   const auto& game =
       static_cast<const PatrolGame&>(*game_);
@@ -403,27 +536,34 @@ std::string PatrolState::ActionToString(Player player, Action move) const {
 }
 
 
+std::string PatrolState::InformationStateString(Player player) const {
+  const PatrolGame& game = open_spiel::down_cast<const PatrolGame&>(*game_);
+  return game.info_state_observer_->StringFrom(*this, player);
+}
+
+//// Version without observer
+
 // std::string PatrolState::InformationStateString(Player player) const {
-//   const PatrolGame& game = open_spiel::down_cast<const PatrolGame&>(*game_);
-//   return game.info_state_observer_->StringFrom(*this, player);
+
+//   // Information state is defined only for actual players (not chance)
+//   SPIEL_CHECK_NE(player, kChancePlayerId);
+
+//   // Ensure valid player index (0 <= player < num_players)
+//   SPIEL_CHECK_GE(player, 0);
+//   SPIEL_CHECK_LT(player, game_->NumPlayers());
+
+//   if (defender_position_ < 0) {
+//     return absl::StrCat("p=", player, "|init");
+//   }
+
+//   return absl::StrCat(
+//       "p=", player,
+//       "|def_hist=", absl::StrJoin(defender_history_, ",")
+//   );
 // }
 
-std::string PatrolState::InformationStateString(Player player) const {
-  SPIEL_CHECK_NE(player, kChancePlayerId);
+////
 
-  SPIEL_CHECK_GE(player, 0);
-  SPIEL_CHECK_LT(player, game_->NumPlayers());
-
-  if (defender_position_ < 0) {
-    return absl::StrCat("p=", player, "|init");
-  }
-
-  return absl::StrCat(
-      "p=", player,
-      "|pos=", defender_position_,
-      " step=", step_
-  );
-}
 std::string PatrolState::ObservationString(Player player) const {
 
   SPIEL_CHECK_GE(player, 0);
@@ -454,21 +594,128 @@ void PatrolState::ObservationTensor(Player player,
   game.default_observer_->WriteTensor(*this, player, &allocator);
 }
 
+/////////////////////////////////////////////
 
 
-
-// PatrolGame implementation.
+/////////////// CLASS PatrolGame ///////////////
 
 PatrolGame::PatrolGame(const GameParameters& params)
     : Game(kGameType, params), num_players_(ParameterValue<int>("players")) {
+
+  // Check that number of players is bigger than min and smaller than max.
   SPIEL_CHECK_GE(num_players_, kGameType.min_num_players);
   SPIEL_CHECK_LE(num_players_, kGameType.max_num_players);
 
   num_delays_ = ParameterValue<int>("num_delays");
 
+  ///////////// FILL GRAPH DEFINITION /////////////
 
+  //  //GRAPH 1
+  // graph_.adj_matrix = {{1,1,1},{1,1,1},{1,1,1}};
+  // graph_.targets = {1.0, 1.0, 1.0};
+  // graph_.attack_duration = {2,2,2};
+
+  //  //GRAPH GDYNIA (2)
+  // graph_.adj_matrix = {
+  //     {0,1,1,1,0,0,0,0,0,0},
+  //     {1,0,1,1,0,0,0,0,0,0},
+  //     {1,1,0,1,0,0,0,0,0,0},
+  //     {1,1,1,0,1,0,0,0,0,1},
+  //     {0,0,0,1,0,0,0,0,1,1},
+  //     {0,0,0,0,0,0,1,1,0,0},
+  //     {0,0,0,0,0,1,0,1,0,0},
+  //     {0,0,0,0,0,1,1,0,1,0},
+  //     {0,0,0,0,1,0,0,1,0,1},
+  //     {0,0,0,1,1,0,0,0,1,0}
+  // };
+
+  // graph_.targets = {
+  //     0.0, 0.0, 1.0, 0.0, 1.0,
+  //     1.0, 1.0, 1.0, 1.0, 1.0
+  // };
+
+  // graph_.attack_duration = {
+  //     3,3,3,3,3,3,3,3,3,3
+  // };
+
+  // JOHN ET AL. GRAPH (8 nodes)
+
+  // graph_.adj_matrix = {
+  //     {1,3,3,5,4,6,3,5},
+  //     {3,1,5,4,2,4,4,5},
+  //     {3,5,1,7,6,8,3,4},
+  //     {6,4,7,1,5,6,4,7},
+  //     {4,3,6,5,1,3,5,5},
+  //     {6,4,8,5,3,1,6,7},
+  //     {2,5,3,5,6,7,1,5},
+  //     {3,5,2,7,6,7,3,1}
+  // };
+
+  // graph_.targets = {
+  //     1.0, 1.0, 1.0, 1.0,
+  //     1.0, 1.0, 1.0, 1.0
+  // };
+
+  // graph_.attack_duration = {
+  //     8, 6, 11, 10,
+  //     6, 10, 9, 10
+  // };
+
+  // // JOHN ET AL. GRAPH (12 nodes)
+
+  // graph_.adj_matrix = {
+  //     {1,3,3,5,4,6,3,5,7,4,6,6},
+  //     {3,1,5,4,2,4,4,5,5,3,5,5},
+  //     {3,5,1,7,6,8,3,4,9,4,8,7},
+  //     {6,4,7,1,5,6,4,7,5,6,6,7},
+  //     {4,3,6,5,1,3,5,5,6,3,4,4},
+  //     {6,4,8,5,3,1,6,7,3,6,2,3},
+  //     {2,5,3,5,6,7,1,5,7,5,7,8},
+  //     {3,5,2,7,6,7,3,1,9,3,7,5},
+  //     {8,6,9,4,6,4,6,9,1,8,5,7},
+  //     {4,3,4,6,3,5,5,3,7,1,5,3},
+  //     {6,4,8,6,4,2,6,6,4,5,1,3},
+  //     {6,4,6,6,3,3,6,4,5,3,2,1}
+  // };
+
+  // graph_.targets = {
+  //     1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+  //     1.0, 1.0, 1.0, 1.0, 1.0, 1.0
+  // };
+
+  // graph_.attack_duration = {
+  //     8, 6, 11, 10,
+  //     6, 10, 9, 10,
+  //     11, 9, 10, 8
+  // };
+
+  // star graph from shield
+  graph_.adj_matrix = {
+      {1,1,1,1},
+      {1,1,0,0},
+      {1,0,1,0},
+      {1,0,0,1}
+  };
+  graph_.targets = {
+      0.0, 1.0, 1.0, 1.0
+  };
+
+  graph_.attack_duration = {
+      2,2,2,2
+  };
+  // Default observation type for imperfect-information games.
+  // Used by ObservationTensor / ObservationString.
+  // Typically contains only public information (visible to all players)
+  // and does NOT include full history (no perfect recall).
   default_observer_ = std::make_shared<PatrolObserver>(kDefaultObsType);
+
+  // Information state observation type.
+  // Used by InformationStateTensor / InformationStateString.
+  // Represents the player's information set:
+  // - includes all information available to the player (public + private)
+  // - typically assumes perfect recall (full history of observations/actions)
   info_state_observer_ = std::make_shared<PatrolObserver>(kInfoStateObsType);
+
   private_observer_ = std::make_shared<PatrolObserver>(
       IIGObservationType{/*public_info*/false,
                          /*perfect_recall*/false,
@@ -484,11 +731,17 @@ std::unique_ptr<State> PatrolGame::NewInitialState() const {
 }
 
 std::vector<int> PatrolGame::InformationStateTensorShape() const {
-  return {100}; ////////////////////// TEMPORART
+  int N = graph_.targets.size();
+  int max_len = MaxGameLength();
+
+  return {2 + max_len * N};
 }
 
 std::vector<int> PatrolGame::ObservationTensorShape() const {
-  return {100}; ///////////////////////////// TEMPORART
+  int N = graph_.targets.size();
+  int max_len = MaxGameLength();
+
+  return {2 + max_len * N};
 }
 
 double PatrolGame::MaxUtility() const {
@@ -504,6 +757,16 @@ double PatrolGame::MinUtility() const {
   return -MaxUtility();
 }
 
+int PatrolGame::MaxGameLength() const {
+  int max_attack = 0;
+  for (int d : graph_.attack_duration) {
+    max_attack = std::max(max_attack, d);
+  }
+
+  return num_delays_ + max_attack + 10; // small buffer
+}
+
+
 std::shared_ptr<Observer> PatrolGame::MakeObserver(
     absl::optional<IIGObservationType> iig_obs_type,
     const GameParameters& params) const {
@@ -514,6 +777,8 @@ std::shared_ptr<Observer> PatrolGame::MakeObserver(
     return MakeRegisteredObserver(iig_obs_type, params);
   }
 }
+
+/////////////////////////////////////////////
 
 }  // namespace patrol
 }  // namespace open_spiel
