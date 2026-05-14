@@ -70,6 +70,7 @@ class PatrolState : public State {
     kChance,
     kDefender,
     kAttacker,
+    kCaptureChance,
     kTerminal
   };
 
@@ -82,12 +83,14 @@ class PatrolState : public State {
   int attacker_delay_;      // delay before attacker starts the attack
   int defender_moves_;      // number of moves made by the defender
   std::vector<int> defender_history_; // history of defender positions
+  bool defender_captured_;  // whether the defender has captured the attacker
 };
 
 struct SimpleGraph {
   std::vector<std::vector<int>> adj_matrix;
   std::vector<double> targets;
   std::vector<int> attack_duration;
+  std::vector<std::vector<double>> coverage_matrix;
 };
 
 
@@ -122,12 +125,23 @@ int MaxChanceOutcomes() const override {
   std::shared_ptr<PatrolObserver> private_observer_;
 
  const SimpleGraph& GetGraph() const { return graph_; }
+
+ int GetNumDelays() const { return num_delays_; }
+
+ int GetAttackerHistoryLength() const {
+   return attacker_history_length_;
+ }
+
  private:
   friend class PatrolState;
+  friend class PatrolObserver;
   // Number of players.
   int num_players_;
   int num_delays_;
   SimpleGraph graph_;
+  int attacker_history_length_; // how much of the history is revealed to the attacker
+
+
 
 };
 

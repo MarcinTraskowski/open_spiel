@@ -18,6 +18,8 @@
 #include <array>
 #include <string>
 #include <utility>
+#include <fstream>
+#include <nlohmann/json.hpp>
 
 #include "open_spiel/abseil-cpp/absl/strings/str_cat.h"
 #include "open_spiel/game_parameters.h"
@@ -26,6 +28,7 @@
 #include "open_spiel/spiel.h"
 #include "open_spiel/spiel_utils.h"
 
+using json = nlohmann::json;
 namespace open_spiel {
 namespace patrol {
 namespace {
@@ -49,7 +52,9 @@ const GameType kGameType{/*short_name=*/"patrol",
                          /*provides_observation_tensor=*/true,
                          /*parameter_specification=*/
                          {{"players", GameParameter(kDefaultPlayers)},
-                          {"num_delays", GameParameter(2)}},
+                          {"num_delays", GameParameter(2)},
+                          {"attacker_history_length", GameParameter(-1)},
+                          {"graph_path", GameParameter(std::string("graphs/star.json"))}},
                          /*default_loadable=*/true,
                          /*provides_factored_observation_string=*/true,
                         };
@@ -62,7 +67,40 @@ std::shared_ptr<const Game> Factory(const GameParameters& params) {
 
 REGISTER_SPIEL_GAME(kGameType, Factory);
 
+
 open_spiel::RegisterSingleTensorObserver single_tensor(kGameType.short_name);
+
+/////////////// LOAD GRAPH ///////////////
+
+SimpleGraph LoadGraphFromJson(const std::string& path) {
+  std::ifstream file(path);
+
+  SPIEL_CHECK_TRUE(file.is_open());
+
+  json j;
+  file >> j;
+
+  SimpleGraph graph;
+
+  graph.adj_matrix =
+      j["adj_matrix"].get<std::vector<std::vector<int>>>();
+
+  graph.targets =
+      j["targets"].get<std::vector<double>>();
+
+  graph.attack_duration =
+      j["attack_duration"].get<std::vector<int>>();
+
+  graph.coverage_matrix =
+      j["coverage_matrix"]
+        .get<std::vector<std::vector<double>>>();
+
+  return graph;
+}
+
+/////////////////////////////////////////////
+
+
 }  // namespace
 
 
@@ -160,23 +198,42 @@ class PatrolObserver : public Observer {
   ////////////////////// old version //////////////////
 
 
-  // VERSION WITH FULL HISTORY
   std::string StringFrom(const State& observed_state,
                         int player) const override {
-  // Build the information state (infoset) as a string:
-  // - identifies the player
-  // - includes full history of defender moves (perfect recall)
                     
     const PatrolState& state =
         open_spiel::down_cast<const PatrolState&>(observed_state);
 
+    const auto& game =
+        open_spiel::down_cast<const PatrolGame&>(*state.game_);
+
+    const auto& hist = state.defender_history_;
+
+    std::vector<int> visible_hist;
+
+    // defender sees full history
+    if (player == 0 ||
+        game.attacker_history_length_ < 0 ||
+        hist.size() <= game.attacker_history_length_) {
+
+      visible_hist = hist;
+
+    } else {
+
+      visible_hist = std::vector<int>(
+          hist.end() - game.attacker_history_length_,
+          hist.end()
+      );
+    }
+
+
     return absl::StrCat(
         "p=", player,
-        "|def_hist=", state.defender_history_.empty()
-        ? "init"
-        : absl::StrJoin(state.defender_history_, ",")
+        "|def_hist=",
+        visible_hist.empty()
+            ? "init"
+            : absl::StrJoin(visible_hist, ",")
     );
-
   }
 
   // VERSION WITH LAST 2 MOVES ONLY (instead of full history)
@@ -227,7 +284,8 @@ PatrolState::PatrolState(std::shared_ptr<const Game> game)
       attack_remaining_(-1),
       step_(0),
       attacker_delay_(-1),
-      defender_moves_(0) {}
+      defender_moves_(0),
+      defender_captured_(false) {}
 
 
 Player PatrolState::CurrentPlayer() const {
@@ -237,6 +295,8 @@ Player PatrolState::CurrentPlayer() const {
 
   switch (phase_) {
     case kChance:
+      return kChancePlayerId;
+    case kCaptureChance:
       return kChancePlayerId;
     case kDefender:
       return 0;
@@ -251,6 +311,7 @@ Player PatrolState::CurrentPlayer() const {
 std::string PatrolState::ToString() const {
   const char* phase_str =
       phase_ == kChance   ? "chance" :
+      phase_ == kCaptureChance ? "capture_chance" :
       phase_ == kDefender ? "defender" :
       phase_ == kAttacker ? "attacker" :
                             "terminal";
@@ -285,10 +346,10 @@ std::vector<double> PatrolState::Returns() const {
 
   double value = graph.targets[attack_target_];
 
-  if (defender_position_ != attack_target_) {
+  if (defender_captured_) {
+    return {value, -value};  // defender, attacker
+  } else  {
     return {-value, value};  // defender, attacker
-  } else {
-    return {value, -value};
   }
 }
 
@@ -300,11 +361,28 @@ std::unique_ptr<State> PatrolState::Clone() const {
 
 std::vector<std::pair<Action, double>> PatrolState::ChanceOutcomes() const {
 
-  SPIEL_CHECK_TRUE(phase_ == kChance);
-
-  std::vector<std::pair<Action, double>> outcomes;
+  SPIEL_CHECK_TRUE(phase_ == kChance || phase_ == kCaptureChance);
 
   const auto& graph = static_cast<const PatrolGame&>(*game_).GetGraph();
+
+  if (phase_ == kCaptureChance) {
+
+    double p =
+        graph.coverage_matrix
+            [defender_position_]
+            [attack_target_];
+
+    return {
+        {0, p},          // capture success
+        {1, 1.0 - p}     // capture failure
+    };
+  }
+
+  // --------------------
+  // INITIAL CHANCE
+  // 
+
+  std::vector<std::pair<Action, double>> outcomes;
 
   const int num_nodes = graph.targets.size(); 
 
@@ -392,10 +470,10 @@ void PatrolState::DoApplyAction(Action move) {
     attack_target_ = move;
     attack_remaining_ = graph.attack_duration[move];
 
-    if (attack_target_ == defender_position_) {
-      phase_ = kTerminal;  // defender wins immediately
-      return;
-    }
+    // if (attack_target_ == defender_position_) {
+    //   phase_ = kTerminal;  // defender wins immediately
+    //   return;
+    // }
 
     // attacker starts attack → back to defender
     phase_ = kDefender;
@@ -422,18 +500,27 @@ void PatrolState::DoApplyAction(Action move) {
     defender_position_ = new_pos;
     defender_history_.push_back(new_pos);
 
-    if (defender_position_ == attack_target_) {
-      phase_ = kTerminal;  // defender wins
-      return;
-    }
-
-    if (attack_remaining_ == 0) {
-      phase_ = kTerminal;  // attacker wins
-      return;
-    }
+    phase_ = kCaptureChance;
 
     return;
   }
+
+  // --------------------
+  // 5. CAPTURE CHANCE
+  // --------------------
+
+  if (phase_ == kCaptureChance) {
+
+    if (move == 0) {
+      defender_captured_ = true;
+      phase_ = kTerminal;
+    } else {
+      defender_captured_ = false;
+      phase_ = kDefender;
+    }
+    return;
+  }
+
 
   SpielFatalError("Unexpected state in DoApplyAction");
 }
@@ -454,7 +541,7 @@ std::vector<Action> PatrolState::LegalActions() const {
   int num_delays = game.num_delays_;
 
   // --------------------
-  // CHANCE
+  // CHANCE START
   // --------------------
   if (phase_ == kChance) {
     std::vector<Action> actions;
@@ -466,6 +553,13 @@ std::vector<Action> PatrolState::LegalActions() const {
     }
 
     return actions;
+  }
+
+  // --------------------
+  // CHANCE Capture
+  // --------------------
+  if (phase_ == kCaptureChance) {
+    return {0, 1};
   }
 
   // --------------------
@@ -513,9 +607,19 @@ std::string PatrolState::ActionToString(Player player, Action move) const {
   // CHANCE
   // --------------------
   if (player == kChancePlayerId) {
-    int start = move / num_delays;
-    int delay = move % num_delays;
-    return absl::StrCat("start=", start, ",delay=", delay);
+    if (phase_ == kChance) {
+      int start = move / num_delays;
+      int delay = move % num_delays;
+      return absl::StrCat("start=", start, ",delay=", delay);
+    }
+    if (phase_ == kCaptureChance) {
+
+      if (move == 0) {
+        return "capture_success";
+      } else {
+        return "capture_failure";
+      }
+    }
   }
 
   // --------------------
@@ -608,6 +712,14 @@ PatrolGame::PatrolGame(const GameParameters& params)
 
   num_delays_ = ParameterValue<int>("num_delays");
 
+  attacker_history_length_ =
+      ParameterValue<int>("attacker_history_length");
+
+  std::string graph_path =
+      ParameterValue<std::string>("graph_path");
+
+  graph_ = LoadGraphFromJson(graph_path);
+
   ///////////// FILL GRAPH DEFINITION /////////////
 
   //  //GRAPH 1
@@ -690,19 +802,21 @@ PatrolGame::PatrolGame(const GameParameters& params)
   // };
 
   // star graph from shield
-  graph_.adj_matrix = {
-      {1,1,1,1},
-      {1,1,0,0},
-      {1,0,1,0},
-      {1,0,0,1}
-  };
-  graph_.targets = {
-      0.0, 1.0, 1.0, 1.0
-  };
+  // graph_.adj_matrix = {
+  //     {1,1,1,1},
+  //     {1,1,0,0},
+  //     {1,0,1,0},
+  //     {1,0,0,1}
+  // };
+  // graph_.targets = {
+  //     0.0, 1.0, 1.0, 1.0
+  // };
 
-  graph_.attack_duration = {
-      2,2,2,2
-  };
+  // graph_.attack_duration = {
+  //     2,2,2,2
+  // };
+
+
   // Default observation type for imperfect-information games.
   // Used by ObservationTensor / ObservationString.
   // Typically contains only public information (visible to all players)
@@ -763,7 +877,8 @@ int PatrolGame::MaxGameLength() const {
     max_attack = std::max(max_attack, d);
   }
 
-  return num_delays_ + max_attack + 10; // small buffer
+  // delay  + defender + capture_chance + small buffer
+  return num_delays_ + 2 * max_attack + 10; // small buffer
 }
 
 

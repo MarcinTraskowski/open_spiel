@@ -1,3 +1,5 @@
+sudo apt install nlohmann-json3-dev
+
 # to build c++
 
 cd build
@@ -12,13 +14,14 @@ pip install -e .
 ./open_spiel/scripts/generate_new_playthrough.sh patrol
 
 
-~/open_spiel/build/examples/cfr_no_exploit
-~/open_spiel/build/examples/cfr_example --game_name=patrol --num_iters=1000
+~/open_spiel/build/examples/cfr_example \
+--game_name="patrol(graph_path=$HOME/open_spiel/open_spiel/games/patrol/graphs/star_shield.json)" \
+--num_iters=1000
 
-~/open_spiel/build/examples/cfr_with_exploit --game_name=patrol --num_iters=100000 --report_every=10000
-
-
-
+~/open_spiel/build/examples/cfr_with_exploit \
+--game_name="patrol(graph_path=$HOME/open_spiel/open_spiel/games/patrol/graphs/Gdynia_2.json,attacker_history_length=1)" \
+--num_iters=20000 \
+--report_every=1000
 
 
 ~/open_spiel/build/examples/cfr_no_exploit --game_name=patrol --num_iters=100001 --report_every=10000
@@ -27,3 +30,5 @@ pip install -e .
 gdb build/examples/cfr_example
 run --game_name=patrol --num_iters=1000
 bt
+
+# gdynia graf // ['Aw_in1', 'Aw_in2', 'B_x_xi', 'Aw_out', 'B_ix', 'B_viii', 'B_vii', 'B_vi', 'B_v', 'B_iv']
